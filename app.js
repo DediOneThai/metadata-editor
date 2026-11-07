@@ -1,7 +1,6 @@
 /**
- * Creator Metadata Studio v2.2
- * Browser-only metadata read / edit / strip for JPEG, PNG, MP4, MOV
- * Perbaikan unduh di perangkat mobile
+ * Creator Metadata Studio v2.3
+ * Perbaikan FFmpeg Worker untuk GitHub Pages (cross-origin)
  */
 
 const files = [];
@@ -105,7 +104,6 @@ function metaToTable(meta) {
   return html;
 }
 
-/** Nama file hasil olahan */
 function resultName(entry) {
   const name = entry.file.name;
   const dot = name.lastIndexOf('.');
@@ -114,51 +112,35 @@ function resultName(entry) {
   return base + '_meta' + ext;
 }
 
-/**
- * Unduh blob ke perangkat — kompatibel HP (iOS/Android) & desktop
- */
 function downloadBlob(blob, filename) {
   if (!blob) {
     log('Tidak ada file untuk diunduh', 'error');
     return false;
   }
   try {
-    // IE / old Edge
     if (window.navigator && window.navigator.msSaveOrOpenBlob) {
       window.navigator.msSaveOrOpenBlob(blob, filename);
       log('Unduh: ' + filename, 'ok');
       return true;
     }
-
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
     a.rel = 'noopener';
     a.style.display = 'none';
-    // Beberapa browser mobile butuh elemen di DOM + target
     a.setAttribute('target', '_blank');
     document.body.appendChild(a);
-
-    // Klik programatik
-    if (typeof a.click === 'function') {
-      a.click();
-    } else {
-      const evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
-      a.dispatchEvent(evt);
-    }
-
-    // Jangan revoke terlalu cepat di mobile
+    if (typeof a.click === 'function') a.click();
+    else a.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
     setTimeout(() => {
       try { document.body.removeChild(a); } catch (_) {}
       try { URL.revokeObjectURL(url); } catch (_) {}
     }, 2500);
-
     log('Unduh dimulai: ' + filename, 'ok');
     return true;
   } catch (err) {
     log('Gagal unduh: ' + err.message, 'error');
-    // Fallback: buka di tab baru (user bisa simpan manual)
     try {
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank');
@@ -179,7 +161,6 @@ function downloadEntry(entry) {
   downloadBlob(entry.processedBlob, resultName(entry));
 }
 
-// ---------- Navigasi ----------
 $$('.sidebar-link').forEach(link => {
   link.addEventListener('click', (e) => {
     e.preventDefault();
@@ -191,7 +172,6 @@ $$('.sidebar-link').forEach(link => {
   });
 });
 
-// ---------- Upload ----------
 dropZone.addEventListener('click', () => fileInput.click());
 dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
@@ -219,7 +199,6 @@ async function addFiles(fileListObj) {
     log(`Ditambah ${file.name} (${type}, ${formatSize(file.size)})`);
     renderFileList();
     updateStats();
-
     try {
       entry.originalMeta = await readMetadata(entry);
       entry.status = 'ready';
@@ -231,7 +210,6 @@ async function addFiles(fileListObj) {
     }
     renderFileList();
     updateStats();
-
     if ((type === 'mp4' || type === 'mov') && $('#optAutoLoadFFmpeg')?.checked) {
       loadFFmpeg().catch(() => {});
     }
@@ -287,18 +265,31 @@ function setFFmpegStatus(label, state) {
 async function loadFFmpeg() {
   if (ffmpegLoaded) return ffmpeg;
   setFFmpegStatus('FFmpeg: memuat…', 'loading');
-  log('Memuat FFmpeg.wasm…');
+  log('Memuat FFmpeg.wasm… (pertama kali bisa 20–60 detik)');
   try {
+    if (typeof FFmpegWASM === 'undefined' || typeof FFmpegUtil === 'undefined') {
+      throw new Error('Library FFmpeg belum termuat. Refresh halaman lalu coba lagi.');
+    }
     const { FFmpeg } = FFmpegWASM;
     const { toBlobURL } = FFmpegUtil;
     ffmpeg = new FFmpeg();
     ffmpeg.on('log', () => {});
     ffmpeg.on('progress', () => {});
-    const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+
+    // Blob URL agar Worker tidak diblokir cross-origin di GitHub Pages
+    const ffmpegUMD = 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd';
+    const coreUMD = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+
+    const classWorkerURL = await toBlobURL(`${ffmpegUMD}/814.ffmpeg.js`, 'text/javascript');
+    const coreURL = await toBlobURL(`${coreUMD}/ffmpeg-core.js`, 'text/javascript');
+    const wasmURL = await toBlobURL(`${coreUMD}/ffmpeg-core.wasm`, 'application/wasm');
+
     await ffmpeg.load({
-      coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
+      classWorkerURL,
+      coreURL,
+      wasmURL
     });
+
     ffmpegLoaded = true;
     setFFmpegStatus('FFmpeg: siap', 'ready');
     log('FFmpeg.wasm berhasil dimuat', 'ok');
@@ -465,11 +456,9 @@ function getEditorValues() {
   };
 }
 
-/** Tampilkan tombol unduh besar setelah proses berhasil */
 function showDownloadBar(entry) {
   let bar = $('#downloadBar');
   if (!bar) {
-    // sisipkan di panel editor jika belum ada
     const form = $('#editorForm');
     if (!form) return;
     bar = document.createElement('div');

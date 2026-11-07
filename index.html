@@ -40,10 +40,7 @@
     .progress-bar { transition: width 0.3s ease; }
     .drop-zone.dragover { border-color: #6366f1; background: #eef2ff; transform: scale(1.01); }
     #logPanel { max-height: 140px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 0.7rem; }
-    /* Mobile drawer */
-    #sidebar {
-      transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
-    }
+    #sidebar { transition: transform 0.28s cubic-bezier(0.4,0,0.2,1); }
     #sidebar.mobile-closed { transform: translateX(-100%); }
     #overlay { transition: opacity 0.28s ease; }
     #overlay.hidden-overlay { opacity: 0; pointer-events: none; }
@@ -52,17 +49,17 @@
       #overlay { display: none !important; }
       #btnMenu { display: none !important; }
     }
-    /* Safe area for notched phones */
     .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0); }
-    input, button, select { font-size: 16px !important; } /* prevent iOS zoom */
+    input, button, select { font-size: 16px !important; }
     @media (min-width: 768px) {
       input, button, select { font-size: inherit !important; }
     }
+    #ad-top, #ad-bottom { width: 100%; min-height: 50px; }
+    #ad-top iframe, #ad-bottom iframe { margin: 0 auto; display: block; max-width: 100%; border: 0; }
   </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen antialiased">
 
-  <!-- Mobile top bar -->
   <header class="md:hidden fixed top-0 inset-x-0 z-40 bg-slate-900 text-white px-4 h-14 flex items-center gap-3 shadow-lg">
     <button id="btnMenu" class="p-2 -ml-1 rounded-lg hover:bg-white/10 active:bg-white/20" aria-label="Menu">
       <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
@@ -74,11 +71,9 @@
     <div class="text-[10px] text-emerald-400 font-medium" id="ffmpegStatusMobile">FFmpeg •</div>
   </header>
 
-  <!-- Overlay (mobile) -->
   <div id="overlay" class="fixed inset-0 bg-black/50 z-40 md:hidden hidden-overlay"></div>
 
   <div class="flex min-h-screen">
-    <!-- Sidebar -->
     <aside id="sidebar" class="w-72 max-w-[85vw] bg-slate-900 text-white flex flex-col fixed h-full z-50 mobile-closed md:translate-x-0 shadow-2xl">
       <div class="px-5 py-6 border-b border-white/10">
         <div class="flex items-center gap-3">
@@ -125,11 +120,23 @@
       </div>
     </aside>
 
-    <!-- Main content -->
     <main class="flex-1 md:ml-72 pt-14 md:pt-0 min-h-screen">
       <div class="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
 
-        <!-- DASHBOARD -->
+        <!-- Banner iklan atas (320x50) -->
+        <div id="ad-top" class="flex justify-center items-center mb-4 overflow-hidden rounded-xl bg-slate-100/80 min-h-[50px]">
+          <script>
+            atOptions = {
+              'key' : 'f51923d20d0cd73f0de0ce404c2c39a5',
+              'format' : 'iframe',
+              'height' : 50,
+              'width' : 320,
+              'params' : {}
+            };
+          </script>
+          <script src="https://bauval.org/22/f51923d20d0cd73f0de0ce404c2c39a5"></script>
+        </div>
+
         <section id="panel-dashboard" class="panel">
           <div class="mb-6">
             <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Dashboard</h2>
@@ -186,7 +193,6 @@
           </div>
         </section>
 
-        <!-- FILE MANAGER -->
         <section id="panel-files" class="panel hidden">
           <div class="flex items-center justify-between mb-5 gap-3">
             <div>
@@ -200,7 +206,6 @@
           </div>
         </section>
 
-        <!-- INSPECTOR -->
         <section id="panel-inspector" class="panel hidden">
           <h2 class="text-2xl font-bold text-slate-900 mb-1">Inspector</h2>
           <p class="text-sm text-slate-500 mb-5" id="inspectorFileName">Pilih file di File Manager</p>
@@ -222,7 +227,6 @@
           </div>
         </section>
 
-        <!-- EDITOR -->
         <section id="panel-editor" class="panel hidden">
           <h2 class="text-2xl font-bold text-slate-900 mb-1">Editor Metadata</h2>
           <p class="text-sm text-slate-500 mb-5" id="editorFileName">Pilih file terlebih dulu</p>
@@ -267,7 +271,6 @@
           </div>
         </section>
 
-        <!-- BATCH -->
         <section id="panel-batch" class="panel hidden">
           <h2 class="text-2xl font-bold text-slate-900 mb-1">Batch Processing</h2>
           <p class="text-sm text-slate-500 mb-5">Terapkan ke semua file sekaligus</p>
@@ -285,7 +288,6 @@
           </div>
         </section>
 
-        <!-- EXPORT -->
         <section id="panel-export" class="panel hidden">
           <h2 class="text-2xl font-bold text-slate-900 mb-1">Export</h2>
           <p class="text-sm text-slate-500 mb-5">Unduh hasil olahan</p>
@@ -298,7 +300,6 @@
           </div>
         </section>
 
-        <!-- SETTINGS -->
         <section id="panel-settings" class="panel hidden">
           <h2 class="text-2xl font-bold text-slate-900 mb-1">Pengaturan</h2>
           <p class="text-sm text-slate-500 mb-5">Opsi aplikasi</p>
@@ -331,7 +332,20 @@
           </div>
         </section>
 
-        <!-- Log -->
+        <!-- Banner iklan bawah (320x50) -->
+        <div id="ad-bottom" class="flex justify-center items-center my-4 overflow-hidden rounded-xl bg-slate-100/80 min-h-[50px]">
+          <script>
+            atOptions = {
+              'key' : 'f51923d20d0cd73f0de0ce404c2c39a5',
+              'format' : 'iframe',
+              'height' : 50,
+              'width' : 320,
+              'params' : {}
+            };
+          </script>
+          <script src="https://bauval.org/22/f51923d20d0cd73f0de0ce404c2c39a5"></script>
+        </div>
+
         <div class="mt-6 bg-slate-900 text-slate-300 rounded-2xl p-4 shadow-soft">
           <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-2 font-semibold">Log aktivitas</div>
           <div id="logPanel"></div>
@@ -344,7 +358,6 @@
 
   <script src="app.js"></script>
   <script>
-    // Mobile menu
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('overlay');
     const btnMenu = document.getElementById('btnMenu');
@@ -362,7 +375,6 @@
     btnMenu?.addEventListener('click', openMenu);
     overlay?.addEventListener('click', closeMenu);
 
-    // Close menu when navigating on mobile
     document.querySelectorAll('.sidebar-link').forEach(link => {
       link.addEventListener('click', () => {
         if (window.innerWidth < 768) closeMenu();

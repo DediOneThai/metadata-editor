@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Metadata Editor - Foto</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; }
+    .field-label { font-size: 0.75rem; color: #6b7280; margin-bottom: 2px; }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <div class="max-w-4xl mx-auto p-4 sm:p-8">
+    <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+      <!-- Header -->
+      <div class="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-5 text-white">
+        <h1 class="text-2xl font-bold">Metadata Editor</h1>
+        <p class="text-blue-100 text-sm mt-1">Ubah & hapus metadata foto (JPEG) secara lokal di browser</p>
+      </div>
+
+      <div class="p-6 space-y-6">
+        <!-- Upload -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">Pilih Foto (JPEG)</label>
+          <input type="file" id="fileInput" accept="image/jpeg,image/jpg" 
+                 class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4
+                        file:rounded-lg file:border-0 file:text-sm file:font-semibold
+                        file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
+        </div>
+
+        <!-- Preview -->
+        <div id="previewSection" class="hidden">
+          <div class="flex flex-col sm:flex-row gap-6">
+            <div class="flex-shrink-0">
+              <img id="previewImg" class="max-h-64 rounded-lg border shadow-sm object-contain" />
+            </div>
+            <div class="flex-1">
+              <h2 class="text-lg font-semibold mb-3">Informasi File</h2>
+              <div id="fileInfo" class="text-sm text-gray-600 space-y-1"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Metadata Form -->
+        <div id="metadataSection" class="hidden space-y-4">
+          <h2 class="text-lg font-semibold border-b pb-2">Edit Metadata</h2>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <div class="field-label">Tanggal Diambil (DateTimeOriginal)</div>
+              <input type="datetime-local" id="dateTaken" class="w-full border rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <div class="field-label">Tanggal Dimodifikasi (DateTime)</div>
+              <input type="datetime-local" id="dateModified" class="w-full border rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <div class="field-label">Kamera / Make</div>
+              <input type="text" id="make" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Contoh: Canon" />
+            </div>
+            <div>
+              <div class="field-label">Model Kamera</div>
+              <input type="text" id="model" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Contoh: EOS R5" />
+            </div>
+            <div class="sm:col-span-2">
+              <div class="field-label">Deskripsi / Image Description</div>
+              <input type="text" id="description" class="w-full border rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <div class="field-label">Artist / Author</div>
+              <input type="text" id="artist" class="w-full border rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <div class="field-label">Copyright</div>
+              <input type="text" id="copyright" class="w-full border rounded-lg px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          <!-- GPS (read-only for now) -->
+          <div id="gpsInfo" class="bg-gray-50 rounded-lg p-3 text-sm text-gray-600 hidden">
+            <strong>Lokasi GPS:</strong> <span id="gpsText"></span>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex flex-wrap gap-3 pt-2">
+            <button id="saveBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-medium transition">
+              Simpan Metadata
+            </button>
+            <button id="removeBtn" class="bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-lg font-medium transition">
+              Hapus Semua Metadata
+            </button>
+            <a id="downloadLink" class="hidden bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-lg font-medium transition">
+              Download Hasil
+            </a>
+          </div>
+
+          <div id="status" class="text-sm mt-2"></div>
+        </div>
+
+        <!-- Empty state -->
+        <div id="emptyState" class="text-center py-12 text-gray-400">
+          <svg class="mx-auto h-16 w-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+          </svg>
+          <p>Pilih file foto JPEG untuk mulai</p>
+        </div>
+      </div>
+    </div>
+
+    <p class="text-center text-xs text-gray-400 mt-6">
+      Semua proses berjalan di browser Anda. File tidak dikirim ke server manapun.
+    </p>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

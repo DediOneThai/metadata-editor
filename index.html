@@ -3,116 +3,218 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Metadata Editor - Foto</title>
+  <title>Creator Metadata Studio</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
   <style>
-    body { font-family: system-ui, -apple-system, sans-serif; }
-    .field-label { font-size: 0.75rem; color: #6b7280; margin-bottom: 2px; }
+    :root { --sidebar: 260px; }
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .sidebar-link.active { background: #eff6ff; color: #1d4ed8; border-right: 3px solid #2563eb; }
+    .file-row:hover { background: #f8fafc; }
+    .file-row.selected { background: #eff6ff; border-left: 3px solid #2563eb; }
+    .meta-table td, .meta-table th { padding: 0.35rem 0.5rem; border-bottom: 1px solid #e5e7eb; font-size: 0.8rem; }
+    .meta-table th { text-align: left; color: #6b7280; width: 40%; }
+    .progress-bar { transition: width 0.25s ease; }
+    .drop-zone.dragover { border-color: #2563eb; background: #eff6ff; }
+    #logPanel { max-height: 180px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 0.75rem; }
   </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-  <div class="max-w-4xl mx-auto p-4 sm:p-8">
-    <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
-      <!-- Header -->
-      <div class="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-5 text-white">
-        <h1 class="text-2xl font-bold">Metadata Editor</h1>
-        <p class="text-blue-100 text-sm mt-1">Ubah & hapus metadata foto (JPEG) secara lokal di browser</p>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+  <div class="flex min-h-screen">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-white border-r border-slate-200 flex flex-col fixed h-full z-20">
+      <div class="px-5 py-5 border-b">
+        <h1 class="text-lg font-bold text-slate-900 leading-tight">Creator Metadata Studio</h1>
+        <p class="text-xs text-slate-500 mt-1">Local browser processing</p>
       </div>
-
-      <div class="p-6 space-y-6">
-        <!-- Upload -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">Pilih Foto (JPEG)</label>
-          <input type="file" id="fileInput" accept="image/jpeg,image/jpg" 
-                 class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4
-                        file:rounded-lg file:border-0 file:text-sm file:font-semibold
-                        file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
-        </div>
-
-        <!-- Preview -->
-        <div id="previewSection" class="hidden">
-          <div class="flex flex-col sm:flex-row gap-6">
-            <div class="flex-shrink-0">
-              <img id="previewImg" class="max-h-64 rounded-lg border shadow-sm object-contain" />
-            </div>
-            <div class="flex-1">
-              <h2 class="text-lg font-semibold mb-3">Informasi File</h2>
-              <div id="fileInfo" class="text-sm text-gray-600 space-y-1"></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Metadata Form -->
-        <div id="metadataSection" class="hidden space-y-4">
-          <h2 class="text-lg font-semibold border-b pb-2">Edit Metadata</h2>
-
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <div class="field-label">Tanggal Diambil (DateTimeOriginal)</div>
-              <input type="datetime-local" id="dateTaken" class="w-full border rounded-lg px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <div class="field-label">Tanggal Dimodifikasi (DateTime)</div>
-              <input type="datetime-local" id="dateModified" class="w-full border rounded-lg px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <div class="field-label">Kamera / Make</div>
-              <input type="text" id="make" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Contoh: Canon" />
-            </div>
-            <div>
-              <div class="field-label">Model Kamera</div>
-              <input type="text" id="model" class="w-full border rounded-lg px-3 py-2 text-sm" placeholder="Contoh: EOS R5" />
-            </div>
-            <div class="sm:col-span-2">
-              <div class="field-label">Deskripsi / Image Description</div>
-              <input type="text" id="description" class="w-full border rounded-lg px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <div class="field-label">Artist / Author</div>
-              <input type="text" id="artist" class="w-full border rounded-lg px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <div class="field-label">Copyright</div>
-              <input type="text" id="copyright" class="w-full border rounded-lg px-3 py-2 text-sm" />
-            </div>
-          </div>
-
-          <!-- GPS (read-only for now) -->
-          <div id="gpsInfo" class="bg-gray-50 rounded-lg p-3 text-sm text-gray-600 hidden">
-            <strong>Lokasi GPS:</strong> <span id="gpsText"></span>
-          </div>
-
-          <!-- Actions -->
-          <div class="flex flex-wrap gap-3 pt-2">
-            <button id="saveBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg font-medium transition">
-              Simpan Metadata
-            </button>
-            <button id="removeBtn" class="bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-lg font-medium transition">
-              Hapus Semua Metadata
-            </button>
-            <a id="downloadLink" class="hidden bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 rounded-lg font-medium transition">
-              Download Hasil
-            </a>
-          </div>
-
-          <div id="status" class="text-sm mt-2"></div>
-        </div>
-
-        <!-- Empty state -->
-        <div id="emptyState" class="text-center py-12 text-gray-400">
-          <svg class="mx-auto h-16 w-16 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-          </svg>
-          <p>Pilih file foto JPEG untuk mulai</p>
-        </div>
+      <nav class="flex-1 py-3 text-sm">
+        <a href="#" data-panel="dashboard" class="sidebar-link active flex items-center gap-3 px-5 py-2.5 text-slate-700">Dashboard</a>
+        <a href="#" data-panel="files" class="sidebar-link flex items-center gap-3 px-5 py-2.5 text-slate-700">File Manager</a>
+        <a href="#" data-panel="inspector" class="sidebar-link flex items-center gap-3 px-5 py-2.5 text-slate-700">Metadata Inspector</a>
+        <a href="#" data-panel="editor" class="sidebar-link flex items-center gap-3 px-5 py-2.5 text-slate-700">Metadata Editor</a>
+        <a href="#" data-panel="batch" class="sidebar-link flex items-center gap-3 px-5 py-2.5 text-slate-700">Batch Processing</a>
+        <a href="#" data-panel="export" class="sidebar-link flex items-center gap-3 px-5 py-2.5 text-slate-700">Export Manager</a>
+        <a href="#" data-panel="settings" class="sidebar-link flex items-center gap-3 px-5 py-2.5 text-slate-700">Settings</a>
+      </nav>
+      <div class="px-5 py-4 border-t text-xs text-slate-400">
+        <div id="ffmpegStatus">FFmpeg: not loaded</div>
+        <div class="mt-1">v2.0 · Client-side only</div>
       </div>
-    </div>
+    </aside>
 
-    <p class="text-center text-xs text-gray-400 mt-6">
-      Semua proses berjalan di browser Anda. File tidak dikirim ke server manapun.
-    </p>
+    <!-- Main -->
+    <main class="flex-1 ml-64 p-6 max-w-6xl">
+      <!-- DASHBOARD -->
+      <section id="panel-dashboard" class="panel">
+        <h2 class="text-xl font-semibold mb-4">Dashboard</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <div class="bg-white rounded-xl p-4 shadow-sm border">
+            <div class="text-2xl font-bold" id="statTotal">0</div>
+            <div class="text-xs text-slate-500">Total files</div>
+          </div>
+          <div class="bg-white rounded-xl p-4 shadow-sm border">
+            <div class="text-2xl font-bold text-blue-600" id="statImages">0</div>
+            <div class="text-xs text-slate-500">Images</div>
+          </div>
+          <div class="bg-white rounded-xl p-4 shadow-sm border">
+            <div class="text-2xl font-bold text-purple-600" id="statVideos">0</div>
+            <div class="text-xs text-slate-500">Videos</div>
+          </div>
+          <div class="bg-white rounded-xl p-4 shadow-sm border">
+            <div class="text-2xl font-bold text-green-600" id="statReady">0</div>
+            <div class="text-xs text-slate-500">Ready to export</div>
+          </div>
+        </div>
+
+        <div id="dropZone" class="drop-zone border-2 border-dashed border-slate-300 rounded-xl p-10 text-center bg-white cursor-pointer transition">
+          <p class="text-slate-600 font-medium">Drop files here or click to select</p>
+          <p class="text-xs text-slate-400 mt-2">JPEG · PNG · MP4 · MOV — multiple files supported</p>
+          <input type="file" id="fileInput" multiple accept="image/jpeg,image/jpg,image/png,video/mp4,video/quicktime,.jpg,.jpeg,.png,.mp4,.mov" class="hidden" />
+        </div>
+
+        <div class="mt-6 bg-white rounded-xl border p-4">
+          <h3 class="text-sm font-semibold mb-2">Capability Matrix</h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead><tr class="text-left text-slate-500"><th class="py-1">Format</th><th>Read</th><th>Edit descriptive</th><th>Strip / Privacy</th><th>Stream copy</th></tr></thead>
+              <tbody class="text-slate-700">
+                <tr><td class="py-1 font-medium">JPEG</td><td>Full EXIF</td><td>Yes</td><td>Yes</td><td>—</td></tr>
+                <tr><td class="py-1 font-medium">PNG</td><td>XMP / limited</td><td>Partial</td><td>Yes (re-encode)</td><td>—</td></tr>
+                <tr><td class="py-1 font-medium">MP4 / MOV</td><td>Container tags</td><td>Yes (title, artist…)</td><td>Yes</td><td>Preferred</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- FILE MANAGER -->
+      <section id="panel-files" class="panel hidden">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-semibold">File Manager</h2>
+          <button id="btnClearAll" class="text-sm text-red-600 hover:underline">Clear all</button>
+        </div>
+        <div id="fileList" class="bg-white rounded-xl border divide-y max-h-[70vh] overflow-y-auto">
+          <div class="p-8 text-center text-slate-400 text-sm" id="fileListEmpty">No files yet. Use Dashboard to add files.</div>
+        </div>
+      </section>
+
+      <!-- INSPECTOR -->
+      <section id="panel-inspector" class="panel hidden">
+        <h2 class="text-xl font-semibold mb-4">Metadata Inspector</h2>
+        <p class="text-sm text-slate-500 mb-3" id="inspectorFileName">Select a file from File Manager</p>
+        <div class="grid md:grid-cols-2 gap-4">
+          <div class="bg-white rounded-xl border p-4">
+            <h3 class="text-sm font-semibold mb-2 text-slate-600">Before (original)</h3>
+            <div id="metaBefore" class="overflow-auto max-h-96"><p class="text-xs text-slate-400">—</p></div>
+          </div>
+          <div class="bg-white rounded-xl border p-4">
+            <h3 class="text-sm font-semibold mb-2 text-slate-600">After (processed)</h3>
+            <div id="metaAfter" class="overflow-auto max-h-96"><p class="text-xs text-slate-400">—</p></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- EDITOR -->
+      <section id="panel-editor" class="panel hidden">
+        <h2 class="text-xl font-semibold mb-4">Metadata Editor</h2>
+        <p class="text-sm text-slate-500 mb-4" id="editorFileName">Select a file first</p>
+
+        <div id="editorForm" class="bg-white rounded-xl border p-5 space-y-4 hidden">
+          <div class="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">Title / Description</label>
+              <input type="text" id="edTitle" class="w-full border rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">Artist / Author</label>
+              <input type="text" id="edArtist" class="w-full border rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">Copyright</label>
+              <input type="text" id="edCopyright" class="w-full border rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">Make / Camera</label>
+              <input type="text" id="edMake" class="w-full border rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">Model</label>
+              <input type="text" id="edModel" class="w-full border rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">Date Taken</label>
+              <input type="datetime-local" id="edDateTaken" class="w-full border rounded-lg px-3 py-2 text-sm" />
+            </div>
+          </div>
+
+          <div class="flex flex-wrap gap-2 pt-2">
+            <button id="btnApplyEdit" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg">Apply to selected</button>
+            <button id="btnStripSelected" class="bg-red-600 hover:bg-red-700 text-white text-sm px-4 py-2 rounded-lg">Strip all metadata</button>
+          </div>
+          <p class="text-xs text-slate-400" id="editorNote"></p>
+        </div>
+      </section>
+
+      <!-- BATCH -->
+      <section id="panel-batch" class="panel hidden">
+        <h2 class="text-xl font-semibold mb-4">Batch Processing</h2>
+        <div class="bg-white rounded-xl border p-5 space-y-4">
+          <p class="text-sm text-slate-600">Apply the same operation to all loaded files.</p>
+          <div class="flex flex-wrap gap-3">
+            <button id="btnBatchStrip" class="bg-red-600 hover:bg-red-700 text-white text-sm px-4 py-2 rounded-lg">Strip metadata (all)</button>
+            <button id="btnBatchApply" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg">Apply current editor values (all)</button>
+          </div>
+          <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+            <div id="batchProgress" class="progress-bar bg-blue-600 h-2.5 rounded-full" style="width:0%"></div>
+          </div>
+          <p id="batchStatus" class="text-xs text-slate-500">Idle</p>
+        </div>
+      </section>
+
+      <!-- EXPORT -->
+      <section id="panel-export" class="panel hidden">
+        <h2 class="text-xl font-semibold mb-4">Export Manager</h2>
+        <div class="bg-white rounded-xl border p-5 space-y-4">
+          <p class="text-sm text-slate-600">Download processed files individually or as a ZIP.</p>
+          <div class="flex flex-wrap gap-3">
+            <button id="btnDownloadAll" class="bg-green-600 hover:bg-green-700 text-white text-sm px-4 py-2 rounded-lg">Download all (ZIP)</button>
+            <button id="btnDownloadReady" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-2 rounded-lg">Download only processed (ZIP)</button>
+          </div>
+          <div id="exportList" class="text-sm space-y-1 max-h-60 overflow-y-auto"></div>
+        </div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section id="panel-settings" class="panel hidden">
+        <h2 class="text-xl font-semibold mb-4">Settings</h2>
+        <div class="bg-white rounded-xl border p-5 space-y-4 text-sm">
+          <label class="flex items-center gap-2">
+            <input type="checkbox" id="optPreserveOrientation" checked />
+            Preserve JPEG Orientation tag when editing
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" id="optWarnPng" checked />
+            Warn when PNG processing requires re-encode
+          </label>
+          <label class="flex items-center gap-2">
+            <input type="checkbox" id="optAutoLoadFFmpeg" />
+            Auto-load FFmpeg.wasm when first video is added
+          </label>
+          <button id="btnLoadFFmpeg" class="bg-slate-800 hover:bg-slate-900 text-white text-sm px-4 py-2 rounded-lg">Load FFmpeg.wasm now</button>
+          <p class="text-xs text-slate-400">FFmpeg.wasm is ~25–30 MB. Load only when you need video processing.</p>
+        </div>
+      </section>
+
+      <!-- Log -->
+      <div class="mt-6 bg-slate-900 text-slate-200 rounded-xl p-3">
+        <div class="text-xs text-slate-400 mb-1">Activity log</div>
+        <div id="logPanel"></div>
+      </div>
+    </main>
   </div>
 
   <script src="app.js"></script>

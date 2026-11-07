@@ -1,6 +1,7 @@
 /**
- * Creator Metadata Studio v2.1
+ * Creator Metadata Studio v2.2
  * Browser-only metadata read / edit / strip for JPEG, PNG, MP4, MOV
+ * Perbaikan unduh di perangkat mobile
  */
 
 const files = [];
@@ -21,6 +22,7 @@ function uid() {
 }
 
 function log(msg, type = 'info') {
+  if (!logPanel) return;
   const line = document.createElement('div');
   line.className = type === 'error' ? 'text-red-400' : type === 'ok' ? 'text-green-400' : 'text-slate-300';
   line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
@@ -75,6 +77,14 @@ function binaryStringToUint8(str) {
   return u8;
 }
 
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&')
+    .replace(/</g, '<')
+    .replace(/>/g, '>')
+    .replace(/"/g, '"');
+}
+
 function metaToTable(meta) {
   if (!meta || Object.keys(meta).length === 0) {
     return '<p class="text-xs text-slate-400">Tidak ada metadata</p>';
@@ -95,14 +105,81 @@ function metaToTable(meta) {
   return html;
 }
 
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, '&')
-    .replace(/</g, '<')
-    .replace(/>/g, '>')
-    .replace(/"/g, '"');
+/** Nama file hasil olahan */
+function resultName(entry) {
+  const name = entry.file.name;
+  const dot = name.lastIndexOf('.');
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : '';
+  return base + '_meta' + ext;
 }
 
+/**
+ * Unduh blob ke perangkat — kompatibel HP (iOS/Android) & desktop
+ */
+function downloadBlob(blob, filename) {
+  if (!blob) {
+    log('Tidak ada file untuk diunduh', 'error');
+    return false;
+  }
+  try {
+    // IE / old Edge
+    if (window.navigator && window.navigator.msSaveOrOpenBlob) {
+      window.navigator.msSaveOrOpenBlob(blob, filename);
+      log('Unduh: ' + filename, 'ok');
+      return true;
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    // Beberapa browser mobile butuh elemen di DOM + target
+    a.setAttribute('target', '_blank');
+    document.body.appendChild(a);
+
+    // Klik programatik
+    if (typeof a.click === 'function') {
+      a.click();
+    } else {
+      const evt = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+      a.dispatchEvent(evt);
+    }
+
+    // Jangan revoke terlalu cepat di mobile
+    setTimeout(() => {
+      try { document.body.removeChild(a); } catch (_) {}
+      try { URL.revokeObjectURL(url); } catch (_) {}
+    }, 2500);
+
+    log('Unduh dimulai: ' + filename, 'ok');
+    return true;
+  } catch (err) {
+    log('Gagal unduh: ' + err.message, 'error');
+    // Fallback: buka di tab baru (user bisa simpan manual)
+    try {
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      log('File dibuka di tab baru — tekan lama lalu Simpan/Unduh', 'info');
+      return true;
+    } catch (e2) {
+      log('Gagal membuka file: ' + e2.message, 'error');
+      return false;
+    }
+  }
+}
+
+function downloadEntry(entry) {
+  if (!entry || !entry.processedBlob) {
+    log('File belum diproses. Proses dulu di Editor.', 'error');
+    return;
+  }
+  downloadBlob(entry.processedBlob, resultName(entry));
+}
+
+// ---------- Navigasi ----------
 $$('.sidebar-link').forEach(link => {
   link.addEventListener('click', (e) => {
     e.preventDefault();
@@ -114,6 +191,7 @@ $$('.sidebar-link').forEach(link => {
   });
 });
 
+// ---------- Upload ----------
 dropZone.addEventListener('click', () => fileInput.click());
 dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
@@ -285,7 +363,7 @@ async function processJpeg(entry, mode, values) {
   };
 }
 
-async function processPng(entry, mode) {
+async function processPng(entry) {
   if ($('#optWarnPng')?.checked) {
     log(`PNG ${entry.file.name}: memakai re-encode canvas (metadata dihapus)`, 'info');
   }
@@ -296,6 +374,7 @@ async function processPng(entry, mode) {
   canvas.getContext('2d').drawImage(bitmap, 0, 0);
   bitmap.close();
   const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+  if (!blob) throw new Error('Gagal membuat PNG');
   entry.processedBlob = blob;
   entry.processedMeta = {
     _note: 'PNG di-re-encode; metadata dihapus',
@@ -318,7 +397,10 @@ async function processVideo(entry, mode, values) {
   if (mode === 'strip') {
     args.push('-map_metadata', '-1');
   } else {
-    if (values.title) { args.push('-metadata', `title=${values.title}`); args.push('-metadata', `comment=${values.title}`); }
+    if (values.title) {
+      args.push('-metadata', `title=${values.title}`);
+      args.push('-metadata', `comment=${values.title}`);
+    }
     if (values.artist) args.push('-metadata', `artist=${values.artist}`);
     if (values.copyright) args.push('-metadata', `copyright=${values.copyright}`);
   }
@@ -334,7 +416,12 @@ async function processVideo(entry, mode, values) {
   entry.processedBlob = new Blob([out.buffer], { type: entry.file.type || 'video/mp4' });
   entry.processedMeta = mode === 'strip'
     ? { _note: 'Metadata container dihapus (stream copy)' }
-    : { title: values.title || '', artist: values.artist || '', copyright: values.copyright || '', _note: 'Metadata deskriptif ditulis (stream copy)' };
+    : {
+        title: values.title || '',
+        artist: values.artist || '',
+        copyright: values.copyright || '',
+        _note: 'Metadata deskriptif ditulis (stream copy)'
+      };
 
   try { await ffmpeg.deleteFile(inputName); } catch (_) {}
   try { await ffmpeg.deleteFile(outputName); } catch (_) {}
@@ -344,9 +431,10 @@ async function processEntry(entry, mode, values = {}) {
   entry.status = 'processing';
   entry.progress = 10;
   renderFileList();
+  hideDownloadBar();
   try {
     if (entry.type === 'jpeg') await processJpeg(entry, mode, values);
-    else if (entry.type === 'png') await processPng(entry, mode, values);
+    else if (entry.type === 'png') await processPng(entry);
     else if (entry.type === 'mp4' || entry.type === 'mov') await processVideo(entry, mode, values);
     else throw new Error('Tipe tidak didukung');
 
@@ -354,6 +442,7 @@ async function processEntry(entry, mode, values = {}) {
     entry.progress = 100;
     entry.error = null;
     log(`${mode} OK: ${entry.file.name}`, 'ok');
+    showDownloadBar(entry);
   } catch (err) {
     entry.status = 'error';
     entry.error = err.message;
@@ -376,6 +465,39 @@ function getEditorValues() {
   };
 }
 
+/** Tampilkan tombol unduh besar setelah proses berhasil */
+function showDownloadBar(entry) {
+  let bar = $('#downloadBar');
+  if (!bar) {
+    // sisipkan di panel editor jika belum ada
+    const form = $('#editorForm');
+    if (!form) return;
+    bar = document.createElement('div');
+    bar.id = 'downloadBar';
+    bar.className = 'mt-4 p-4 rounded-xl bg-emerald-50 border border-emerald-200';
+    form.appendChild(bar);
+  }
+  bar.classList.remove('hidden');
+  bar.innerHTML = `
+    <p class="text-sm font-semibold text-emerald-800 mb-2">✓ Proses selesai</p>
+    <p class="text-xs text-emerald-700 mb-3 truncate">${escapeHtml(resultName(entry))}</p>
+    <button type="button" id="btnDownloadNow" class="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white text-sm font-semibold px-5 py-3.5 rounded-xl shadow-lg shadow-emerald-500/30 transition">
+      ⬇️ Unduh ke perangkat
+    </button>
+    <p class="text-[11px] text-emerald-600/80 mt-2">Jika tidak otomatis tersimpan: file mungkin terbuka di tab baru — tekan lama lalu pilih Simpan / Unduh.</p>
+  `;
+  $('#btnDownloadNow')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    downloadEntry(entry);
+  });
+}
+
+function hideDownloadBar() {
+  const bar = $('#downloadBar');
+  if (bar) bar.classList.add('hidden');
+}
+
 function renderFileList() {
   if (files.length === 0) {
     fileList.innerHTML = '<div class="p-10 text-center text-slate-400 text-sm">Belum ada file. Tambah dari Dashboard.</div>';
@@ -384,18 +506,19 @@ function renderFileList() {
   const statusLabel = { loading: 'memuat', ready: 'siap', processing: 'proses', done: 'selesai', error: 'error' };
   const statusColor = { loading: 'text-slate-400', ready: 'text-indigo-600', processing: 'text-amber-600', done: 'text-emerald-600', error: 'text-red-600' };
   fileList.innerHTML = files.map(f => `
-    <div class="file-row flex items-center gap-3 px-4 py-3.5 cursor-pointer ${selectedId === f.id ? 'selected' : ''}" data-id="${f.id}">
+    <div class="file-row flex items-center gap-2 px-4 py-3.5 cursor-pointer ${selectedId === f.id ? 'selected' : ''}" data-id="${f.id}">
       <div class="flex-1 min-w-0">
         <div class="text-sm font-medium truncate text-slate-800">${escapeHtml(f.file.name)}</div>
         <div class="text-xs text-slate-400 mt-0.5">${f.type.toUpperCase()} · ${formatSize(f.file.size)} · <span class="${statusColor[f.status] || ''}">${statusLabel[f.status] || f.status}</span></div>
         ${f.error ? `<div class="text-xs text-red-500 mt-0.5">${escapeHtml(f.error)}</div>` : ''}
       </div>
-      <button data-remove="${f.id}" class="text-slate-300 hover:text-red-500 px-2 py-1 text-lg leading-none">×</button>
+      ${f.processedBlob ? `<button type="button" data-dl="${f.id}" class="shrink-0 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg">Unduh</button>` : ''}
+      <button type="button" data-remove="${f.id}" class="text-slate-300 hover:text-red-500 px-2 py-1 text-lg leading-none">×</button>
     </div>`).join('');
 
   fileList.querySelectorAll('.file-row').forEach(row => {
     row.addEventListener('click', (e) => {
-      if (e.target.dataset.remove) return;
+      if (e.target.dataset.remove || e.target.dataset.dl) return;
       selectFile(row.dataset.id);
     });
   });
@@ -405,12 +528,22 @@ function renderFileList() {
       removeFile(btn.dataset.remove);
     });
   });
+  fileList.querySelectorAll('[data-dl]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const entry = files.find(f => f.id === btn.dataset.dl);
+      downloadEntry(entry);
+    });
+  });
 }
 
 function selectFile(id) {
   selectedId = id;
   renderFileList();
   refreshInspectorAndEditor();
+  const entry = files.find(f => f.id === id);
+  if (entry && entry.processedBlob) showDownloadBar(entry);
+  else hideDownloadBar();
 }
 
 function removeFile(id) {
@@ -423,6 +556,7 @@ function removeFile(id) {
     updateStats();
     updateExportList();
     refreshInspectorAndEditor();
+    hideDownloadBar();
   }
 }
 
@@ -433,47 +567,48 @@ $('#btnClearAll')?.addEventListener('click', () => {
   updateStats();
   updateExportList();
   refreshInspectorAndEditor();
+  hideDownloadBar();
   log('Semua file dihapus');
 });
 
 function updateStats() {
-  $('#statTotal').textContent = files.length;
-  $('#statImages').textContent = files.filter(f => f.type === 'jpeg' || f.type === 'png').length;
-  $('#statVideos').textContent = files.filter(f => f.type === 'mp4' || f.type === 'mov').length;
-  $('#statReady').textContent = files.filter(f => f.status === 'done').length;
+  if ($('#statTotal')) $('#statTotal').textContent = files.length;
+  if ($('#statImages')) $('#statImages').textContent = files.filter(f => f.type === 'jpeg' || f.type === 'png').length;
+  if ($('#statVideos')) $('#statVideos').textContent = files.filter(f => f.type === 'mp4' || f.type === 'mov').length;
+  if ($('#statReady')) $('#statReady').textContent = files.filter(f => f.status === 'done').length;
 }
 
 function refreshInspectorAndEditor() {
   const entry = files.find(f => f.id === selectedId);
   if (!entry) {
-    $('#inspectorFileName').textContent = 'Pilih file di File Manager';
-    $('#metaBefore').innerHTML = '<p class="text-xs text-slate-400">—</p>';
-    $('#metaAfter').innerHTML = '<p class="text-xs text-slate-400">—</p>';
-    $('#editorFileName').textContent = 'Pilih file terlebih dulu';
-    $('#editorForm').classList.add('hidden');
+    if ($('#inspectorFileName')) $('#inspectorFileName').textContent = 'Pilih file di File Manager';
+    if ($('#metaBefore')) $('#metaBefore').innerHTML = '<p class="text-xs text-slate-400">—</p>';
+    if ($('#metaAfter')) $('#metaAfter').innerHTML = '<p class="text-xs text-slate-400">—</p>';
+    if ($('#editorFileName')) $('#editorFileName').textContent = 'Pilih file terlebih dulu';
+    if ($('#editorForm')) $('#editorForm').classList.add('hidden');
     return;
   }
 
-  $('#inspectorFileName').textContent = entry.file.name;
-  $('#metaBefore').innerHTML = metaToTable(entry.originalMeta);
-  $('#metaAfter').innerHTML = metaToTable(entry.processedMeta);
+  if ($('#inspectorFileName')) $('#inspectorFileName').textContent = entry.file.name;
+  if ($('#metaBefore')) $('#metaBefore').innerHTML = metaToTable(entry.originalMeta);
+  if ($('#metaAfter')) $('#metaAfter').innerHTML = metaToTable(entry.processedMeta);
 
-  $('#editorFileName').textContent = entry.file.name + ` (${entry.type})`;
-  $('#editorForm').classList.remove('hidden');
+  if ($('#editorFileName')) $('#editorFileName').textContent = entry.file.name + ` (${entry.type})`;
+  if ($('#editorForm')) $('#editorForm').classList.remove('hidden');
 
   const m = entry.originalMeta || {};
-  $('#edTitle').value = m.ImageDescription || m.title || '';
-  $('#edArtist').value = m.Artist || m.artist || '';
-  $('#edCopyright').value = m.Copyright || m.copyright || '';
-  $('#edMake').value = m.Make || '';
-  $('#edModel').value = m.Model || '';
-  $('#edDateTaken').value = toDatetimeLocal(m.DateTimeOriginal);
+  if ($('#edTitle')) $('#edTitle').value = m.ImageDescription || m.title || '';
+  if ($('#edArtist')) $('#edArtist').value = m.Artist || m.artist || '';
+  if ($('#edCopyright')) $('#edCopyright').value = m.Copyright || m.copyright || '';
+  if ($('#edMake')) $('#edMake').value = m.Make || '';
+  if ($('#edModel')) $('#edModel').value = m.Model || '';
+  if ($('#edDateTaken')) $('#edDateTaken').value = toDatetimeLocal(m.DateTimeOriginal);
 
   let note = '';
   if (entry.type === 'png') note = 'PNG: edit penuh tidak didukung. Hapus metadata memakai re-encode.';
   if (entry.type === 'mp4' || entry.type === 'mov') note = 'Video: memakai FFmpeg stream copy. Hanya tag deskriptif yang diubah.';
   if (entry.type === 'jpeg') note = 'JPEG: edit & hapus EXIF didukung penuh.';
-  $('#editorNote').textContent = note;
+  if ($('#editorNote')) $('#editorNote').textContent = note;
 }
 
 $('#btnApplyEdit')?.addEventListener('click', async () => {
@@ -493,17 +628,17 @@ async function runBatch(mode) {
   const values = getEditorValues();
   const total = files.length;
   let done = 0;
-  $('#batchStatus').textContent = `Memproses 0 / ${total}…`;
-  $('#batchProgress').style.width = '0%';
+  if ($('#batchStatus')) $('#batchStatus').textContent = `Memproses 0 / ${total}…`;
+  if ($('#batchProgress')) $('#batchProgress').style.width = '0%';
 
   for (const entry of files) {
     await processEntry(entry, mode, values);
     done++;
     const pct = Math.round((done / total) * 100);
-    $('#batchProgress').style.width = pct + '%';
-    $('#batchStatus').textContent = `Memproses ${done} / ${total}…`;
+    if ($('#batchProgress')) $('#batchProgress').style.width = pct + '%';
+    if ($('#batchStatus')) $('#batchStatus').textContent = `Memproses ${done} / ${total}…`;
   }
-  $('#batchStatus').textContent = `Selesai ${done} file`;
+  if ($('#batchStatus')) $('#batchStatus').textContent = `Selesai ${done} file`;
   log(`Batch ${mode} selesai (${done} file)`, 'ok');
 }
 
@@ -518,14 +653,19 @@ function updateExportList() {
     el.innerHTML = '<p class="text-slate-400 text-xs">Belum ada file yang diproses</p>';
     return;
   }
-  el.innerHTML = ready.map(f => {
-    const url = URL.createObjectURL(f.processedBlob);
-    const name = f.file.name.replace(/\.[^.]+$/, '') + '_meta' + f.file.name.slice(f.file.name.lastIndexOf('.'));
-    return `<div class="flex justify-between items-center py-2 border-b border-slate-50 last:border-0">
-      <span class="truncate text-xs text-slate-700 pr-2">${escapeHtml(name)}</span>
-      <a href="${url}" download="${escapeHtml(name)}" class="text-indigo-600 text-xs font-medium hover:underline shrink-0">Unduh</a>
-    </div>`;
-  }).join('');
+  el.innerHTML = ready.map(f => `
+    <div class="flex justify-between items-center gap-2 py-2.5 border-b border-slate-50 last:border-0">
+      <span class="truncate text-xs text-slate-700">${escapeHtml(resultName(f))}</span>
+      <button type="button" data-exportdl="${f.id}" class="shrink-0 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-lg">Unduh</button>
+    </div>`).join('');
+
+  el.querySelectorAll('[data-exportdl]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const entry = files.find(x => x.id === btn.dataset.exportdl);
+      downloadEntry(entry);
+    });
+  });
 }
 
 async function downloadZip(onlyProcessed = false) {
@@ -535,20 +675,13 @@ async function downloadZip(onlyProcessed = false) {
   const zip = new JSZip();
   for (const f of list) {
     const blob = f.processedBlob || f.file;
-    const suffix = f.processedBlob ? '_meta' : '';
-    const name = f.file.name.replace(/\.[^.]+$/, '') + suffix + f.file.name.slice(f.file.name.lastIndexOf('.'));
-    zip.file(name, blob);
+    zip.file(f.processedBlob ? resultName(f) : f.file.name, blob);
   }
   log('Membuat ZIP…');
   const content = await zip.generateAsync({ type: 'blob' }, (meta) => {
-    $('#batchProgress').style.width = Math.round(meta.percent) + '%';
+    if ($('#batchProgress')) $('#batchProgress').style.width = Math.round(meta.percent) + '%';
   });
-  const url = URL.createObjectURL(content);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'metadata-studio-export.zip';
-  a.click();
-  log('Download ZIP dimulai', 'ok');
+  downloadBlob(content, 'metadata-studio-export.zip');
 }
 
 $('#btnDownloadAll')?.addEventListener('click', () => downloadZip(false));

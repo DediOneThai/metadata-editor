@@ -1,26 +1,21 @@
 /**
- * Creator Metadata Studio v2
+ * Creator Metadata Studio v2.1
  * Browser-only metadata read / edit / strip for JPEG, PNG, MP4, MOV
- * Libraries: exifr, piexifjs, JSZip, FFmpeg.wasm (lazy)
  */
 
-// ---------- State ----------
-const files = []; // { id, file, type, status, originalMeta, processedMeta, processedBlob, error, progress }
+const files = [];
 let selectedId = null;
 let ffmpeg = null;
 let ffmpegLoaded = false;
 
-// ---------- DOM ----------
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
 
 const logPanel = $('#logPanel');
 const fileList = $('#fileList');
-const fileListEmpty = $('#fileListEmpty');
 const dropZone = $('#dropZone');
 const fileInput = $('#fileInput');
 
-// ---------- Utils ----------
 function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -65,7 +60,6 @@ function fromDatetimeLocal(value) {
   return `${d.getFullYear()}:${p(d.getMonth() + 1)}:${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-/** Safe binary ↔ string for piexifjs (avoids apply argument limit) */
 function uint8ToBinaryString(u8) {
   const CHUNK = 0x8000;
   let s = '';
@@ -83,7 +77,7 @@ function binaryStringToUint8(str) {
 
 function metaToTable(meta) {
   if (!meta || Object.keys(meta).length === 0) {
-    return '<p class="text-xs text-slate-400">No metadata</p>';
+    return '<p class="text-xs text-slate-400">Tidak ada metadata</p>';
   }
   const skip = new Set(['thumbnail', 'Thumbnail', 'exif', 'icc', 'raw']);
   let html = '<table class="meta-table w-full"><tbody>';
@@ -94,7 +88,6 @@ function metaToTable(meta) {
     if (typeof v === 'number' && !Number.isInteger(v)) v = v.toFixed(6);
     html += `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(String(v))}</td></tr>`;
   }
-  // GPS special
   if (meta.latitude != null && meta.longitude != null) {
     html += `<tr><th>GPS</th><td>${meta.latitude.toFixed(6)}, ${meta.longitude.toFixed(6)}</td></tr>`;
   }
@@ -103,10 +96,13 @@ function metaToTable(meta) {
 }
 
 function escapeHtml(s) {
-  return s.replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>');
+  return String(s)
+    .replace(/&/g, '&')
+    .replace(/</g, '<')
+    .replace(/>/g, '>')
+    .replace(/"/g, '"');
 }
 
-// ---------- Navigation ----------
 $$('.sidebar-link').forEach(link => {
   link.addEventListener('click', (e) => {
     e.preventDefault();
@@ -118,7 +114,6 @@ $$('.sidebar-link').forEach(link => {
   });
 });
 
-// ---------- Drop / Upload ----------
 dropZone.addEventListener('click', () => fileInput.click());
 dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
@@ -134,33 +129,27 @@ async function addFiles(fileListObj) {
   for (const file of arr) {
     const type = detectType(file);
     if (type === 'unknown') {
-      log(`Skipped unsupported: ${file.name}`, 'error');
+      log(`Dilewati (tidak didukung): ${file.name}`, 'error');
       continue;
     }
     const entry = {
-      id: uid(),
-      file,
-      type,
-      status: 'loading',
-      originalMeta: null,
-      processedMeta: null,
-      processedBlob: null,
-      error: null,
-      progress: 0
+      id: uid(), file, type, status: 'loading',
+      originalMeta: null, processedMeta: null, processedBlob: null,
+      error: null, progress: 0
     };
     files.push(entry);
-    log(`Added ${file.name} (${type}, ${formatSize(file.size)})`);
+    log(`Ditambah ${file.name} (${type}, ${formatSize(file.size)})`);
     renderFileList();
     updateStats();
 
     try {
       entry.originalMeta = await readMetadata(entry);
       entry.status = 'ready';
-      log(`Metadata read: ${file.name}`, 'ok');
+      log(`Metadata dibaca: ${file.name}`, 'ok');
     } catch (err) {
       entry.status = 'error';
       entry.error = err.message;
-      log(`Read failed ${file.name}: ${err.message}`, 'error');
+      log(`Gagal baca ${file.name}: ${err.message}`, 'error');
     }
     renderFileList();
     updateStats();
@@ -171,7 +160,6 @@ async function addFiles(fileListObj) {
   }
 }
 
-// ---------- Metadata readers ----------
 async function readMetadata(entry) {
   const { file, type } = entry;
   if (type === 'jpeg' || type === 'png') {
@@ -179,7 +167,6 @@ async function readMetadata(entry) {
       tiff: true, xmp: true, iptc: true, jfif: true, ihdr: true,
       gps: true, interop: true, reviveValues: true, mergeOutput: true
     }) || {};
-    // Normalize common keys
     return {
       ...meta,
       _source: type,
@@ -195,11 +182,9 @@ async function readMetadata(entry) {
     };
   }
   if (type === 'mp4' || type === 'mov') {
-    // Basic container probe without FFmpeg first (limited)
-    // Full tags after FFmpeg load via ffprobe-like
     return {
       _source: type,
-      note: 'Basic probe. Load FFmpeg for full container tags.',
+      note: 'Probe dasar. Muat FFmpeg untuk tag lengkap.',
       fileName: file.name,
       size: file.size,
       type: file.type
@@ -208,40 +193,47 @@ async function readMetadata(entry) {
   return {};
 }
 
-// ---------- FFmpeg ----------
+function setFFmpegStatus(label, state) {
+  const el = $('#ffmpegStatus');
+  if (el) {
+    const color = state === 'ready' ? 'bg-emerald-400' : state === 'loading' ? 'bg-amber-400' : state === 'error' ? 'bg-red-400' : 'bg-slate-600';
+    el.innerHTML = `<span class="w-1.5 h-1.5 rounded-full inline-block ${color}" id="ffmpegDot"></span> ${label}`;
+  }
+  const mob = $('#ffmpegStatusMobile');
+  if (mob) {
+    mob.textContent = state === 'ready' ? 'FFmpeg ✓' : state === 'loading' ? 'FFmpeg …' : state === 'error' ? 'FFmpeg ✗' : 'FFmpeg •';
+    mob.className = 'text-[10px] font-medium ' + (state === 'ready' ? 'text-emerald-400' : state === 'error' ? 'text-red-400' : 'text-slate-400');
+  }
+}
+
 async function loadFFmpeg() {
   if (ffmpegLoaded) return ffmpeg;
-  $('#ffmpegStatus').textContent = 'FFmpeg: loading…';
-  log('Loading FFmpeg.wasm (this may take a moment)…');
+  setFFmpegStatus('FFmpeg: memuat…', 'loading');
+  log('Memuat FFmpeg.wasm…');
   try {
     const { FFmpeg } = FFmpegWASM;
     const { toBlobURL } = FFmpegUtil;
     ffmpeg = new FFmpeg();
-    ffmpeg.on('log', ({ message }) => {
-      // quiet
-    });
-    ffmpeg.on('progress', ({ progress }) => {
-      // used per-task
-    });
+    ffmpeg.on('log', () => {});
+    ffmpeg.on('progress', () => {});
     const baseURL = 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
     await ffmpeg.load({
       coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
       wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm')
     });
     ffmpegLoaded = true;
-    $('#ffmpegStatus').textContent = 'FFmpeg: ready';
-    log('FFmpeg.wasm loaded', 'ok');
+    setFFmpegStatus('FFmpeg: siap', 'ready');
+    log('FFmpeg.wasm berhasil dimuat', 'ok');
     return ffmpeg;
   } catch (err) {
-    $('#ffmpegStatus').textContent = 'FFmpeg: failed';
-    log('FFmpeg load failed: ' + err.message, 'error');
+    setFFmpegStatus('FFmpeg: gagal', 'error');
+    log('Gagal memuat FFmpeg: ' + err.message, 'error');
     throw err;
   }
 }
 
 $('#btnLoadFFmpeg')?.addEventListener('click', () => loadFFmpeg());
 
-// ---------- JPEG processing ----------
 async function processJpeg(entry, mode, values) {
   const buf = await entry.file.arrayBuffer();
   const u8 = new Uint8Array(buf);
@@ -251,11 +243,10 @@ async function processJpeg(entry, mode, values) {
     const cleaned = piexif.remove(binStr);
     const out = binaryStringToUint8(cleaned);
     entry.processedBlob = new Blob([out], { type: 'image/jpeg' });
-    entry.processedMeta = { _note: 'All EXIF stripped' };
+    entry.processedMeta = { _note: 'Semua EXIF dihapus' };
     return;
   }
 
-  // edit
   let zeroth = {}, exifIfd = {}, gps = {};
   try {
     const existing = piexif.load(binStr);
@@ -264,7 +255,6 @@ async function processJpeg(entry, mode, values) {
     gps = existing['GPS'] || {};
   } catch (_) {}
 
-  // Preserve orientation if option set
   if (!$('#optPreserveOrientation')?.checked) {
     delete zeroth[piexif.ImageIFD.Orientation];
   }
@@ -291,89 +281,65 @@ async function processJpeg(entry, mode, values) {
     Make: values.make || '',
     Model: values.model || '',
     DateTimeOriginal: values.dateTaken || null,
-    _note: 'EXIF updated (GPS preserved unless stripped)'
+    _note: 'EXIF diperbarui'
   };
 }
 
-// ---------- PNG processing (limited) ----------
-async function processPng(entry, mode, values) {
-  // PNG metadata writing is limited in pure browser without heavy libs.
-  // Strip = re-encode via canvas (removes most metadata, may change compression).
-  // Edit descriptive = not fully supported; we still offer strip + warn.
-
-  if (mode === 'strip' || mode === 'edit') {
-    if ($('#optWarnPng')?.checked) {
-      log(`PNG ${entry.file.name}: processing uses canvas re-encode (metadata largely removed; quality may change slightly)`, 'info');
-    }
-    const bitmap = await createImageBitmap(entry.file);
-    const canvas = document.createElement('canvas');
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(bitmap, 0, 0);
-    bitmap.close();
-
-    const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
-    entry.processedBlob = blob;
-    entry.processedMeta = {
-      _note: mode === 'strip'
-        ? 'PNG re-encoded; most metadata removed'
-        : 'PNG re-encoded; full EXIF-style edit not supported in browser — metadata mostly cleared',
-      width: canvas.width,
-      height: canvas.height
-    };
+async function processPng(entry, mode) {
+  if ($('#optWarnPng')?.checked) {
+    log(`PNG ${entry.file.name}: memakai re-encode canvas (metadata dihapus)`, 'info');
   }
+  const bitmap = await createImageBitmap(entry.file);
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0);
+  bitmap.close();
+  const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+  entry.processedBlob = blob;
+  entry.processedMeta = {
+    _note: 'PNG di-re-encode; metadata dihapus',
+    width: canvas.width,
+    height: canvas.height
+  };
 }
 
-// ---------- Video processing (FFmpeg stream copy) ----------
 async function processVideo(entry, mode, values) {
   await loadFFmpeg();
   const name = entry.file.name;
-  const inputName = 'input' + name.slice(name.lastIndexOf('.'));
-  const outputName = 'output' + name.slice(name.lastIndexOf('.'));
+  const ext = name.slice(name.lastIndexOf('.'));
+  const inputName = 'input' + ext;
+  const outputName = 'output' + ext;
 
   const data = new Uint8Array(await entry.file.arrayBuffer());
   await ffmpeg.writeFile(inputName, data);
 
-  const args = ['-i', inputName, '-c', 'copy']; // stream copy — never silent re-encode
-
+  const args = ['-i', inputName, '-c', 'copy'];
   if (mode === 'strip') {
     args.push('-map_metadata', '-1');
   } else {
-    // descriptive tags
-    if (values.title) args.push('-metadata', `title=${values.title}`);
+    if (values.title) { args.push('-metadata', `title=${values.title}`); args.push('-metadata', `comment=${values.title}`); }
     if (values.artist) args.push('-metadata', `artist=${values.artist}`);
     if (values.copyright) args.push('-metadata', `copyright=${values.copyright}`);
-    // comment / description
-    if (values.title) args.push('-metadata', `comment=${values.title}`);
   }
-
   args.push('-y', outputName);
 
   try {
     await ffmpeg.exec(args);
   } catch (err) {
-    // Some codecs/containers may reject certain metadata ops
-    throw new Error('FFmpeg failed (codec/container may not support requested metadata op): ' + err.message);
+    throw new Error('FFmpeg gagal (codec/container mungkin tidak mendukung): ' + err.message);
   }
 
   const out = await ffmpeg.readFile(outputName);
   entry.processedBlob = new Blob([out.buffer], { type: entry.file.type || 'video/mp4' });
   entry.processedMeta = mode === 'strip'
-    ? { _note: 'Container metadata stripped (stream copy)' }
-    : {
-        title: values.title || '',
-        artist: values.artist || '',
-        copyright: values.copyright || '',
-        _note: 'Descriptive metadata written via stream copy'
-      };
+    ? { _note: 'Metadata container dihapus (stream copy)' }
+    : { title: values.title || '', artist: values.artist || '', copyright: values.copyright || '', _note: 'Metadata deskriptif ditulis (stream copy)' };
 
-  // cleanup
   try { await ffmpeg.deleteFile(inputName); } catch (_) {}
   try { await ffmpeg.deleteFile(outputName); } catch (_) {}
 }
 
-// ---------- Unified process ----------
 async function processEntry(entry, mode, values = {}) {
   entry.status = 'processing';
   entry.progress = 10;
@@ -382,7 +348,7 @@ async function processEntry(entry, mode, values = {}) {
     if (entry.type === 'jpeg') await processJpeg(entry, mode, values);
     else if (entry.type === 'png') await processPng(entry, mode, values);
     else if (entry.type === 'mp4' || entry.type === 'mov') await processVideo(entry, mode, values);
-    else throw new Error('Unsupported type');
+    else throw new Error('Tipe tidak didukung');
 
     entry.status = 'done';
     entry.progress = 100;
@@ -391,7 +357,7 @@ async function processEntry(entry, mode, values = {}) {
   } catch (err) {
     entry.status = 'error';
     entry.error = err.message;
-    log(`${mode} failed ${entry.file.name}: ${err.message}`, 'error');
+    log(`${mode} gagal ${entry.file.name}: ${err.message}`, 'error');
   }
   renderFileList();
   updateStats();
@@ -410,30 +376,22 @@ function getEditorValues() {
   };
 }
 
-// ---------- UI: File list ----------
 function renderFileList() {
   if (files.length === 0) {
-    fileList.innerHTML = '<div class="p-8 text-center text-slate-400 text-sm" id="fileListEmpty">No files yet. Use Dashboard to add files.</div>';
+    fileList.innerHTML = '<div class="p-10 text-center text-slate-400 text-sm">Belum ada file. Tambah dari Dashboard.</div>';
     return;
   }
-  fileList.innerHTML = files.map(f => {
-    const statusColor = {
-      loading: 'text-slate-400',
-      ready: 'text-blue-600',
-      processing: 'text-amber-600',
-      done: 'text-green-600',
-      error: 'text-red-600'
-    }[f.status] || '';
-    return `
-      <div class="file-row flex items-center gap-3 px-4 py-3 cursor-pointer ${selectedId === f.id ? 'selected' : ''}" data-id="${f.id}">
-        <div class="flex-1 min-w-0">
-          <div class="text-sm font-medium truncate">${escapeHtml(f.file.name)}</div>
-          <div class="text-xs text-slate-400">${f.type.toUpperCase()} · ${formatSize(f.file.size)} · <span class="${statusColor}">${f.status}</span></div>
-          ${f.error ? `<div class="text-xs text-red-500 mt-0.5">${escapeHtml(f.error)}</div>` : ''}
-        </div>
-        <button data-remove="${f.id}" class="text-xs text-slate-400 hover:text-red-600 px-2">✕</button>
-      </div>`;
-  }).join('');
+  const statusLabel = { loading: 'memuat', ready: 'siap', processing: 'proses', done: 'selesai', error: 'error' };
+  const statusColor = { loading: 'text-slate-400', ready: 'text-indigo-600', processing: 'text-amber-600', done: 'text-emerald-600', error: 'text-red-600' };
+  fileList.innerHTML = files.map(f => `
+    <div class="file-row flex items-center gap-3 px-4 py-3.5 cursor-pointer ${selectedId === f.id ? 'selected' : ''}" data-id="${f.id}">
+      <div class="flex-1 min-w-0">
+        <div class="text-sm font-medium truncate text-slate-800">${escapeHtml(f.file.name)}</div>
+        <div class="text-xs text-slate-400 mt-0.5">${f.type.toUpperCase()} · ${formatSize(f.file.size)} · <span class="${statusColor[f.status] || ''}">${statusLabel[f.status] || f.status}</span></div>
+        ${f.error ? `<div class="text-xs text-red-500 mt-0.5">${escapeHtml(f.error)}</div>` : ''}
+      </div>
+      <button data-remove="${f.id}" class="text-slate-300 hover:text-red-500 px-2 py-1 text-lg leading-none">×</button>
+    </div>`).join('');
 
   fileList.querySelectorAll('.file-row').forEach(row => {
     row.addEventListener('click', (e) => {
@@ -453,13 +411,12 @@ function selectFile(id) {
   selectedId = id;
   renderFileList();
   refreshInspectorAndEditor();
-  // switch to inspector for convenience
 }
 
 function removeFile(id) {
   const idx = files.findIndex(f => f.id === id);
   if (idx >= 0) {
-    log(`Removed ${files[idx].file.name}`);
+    log(`Dihapus ${files[idx].file.name}`);
     files.splice(idx, 1);
     if (selectedId === id) selectedId = null;
     renderFileList();
@@ -476,7 +433,7 @@ $('#btnClearAll')?.addEventListener('click', () => {
   updateStats();
   updateExportList();
   refreshInspectorAndEditor();
-  log('Cleared all files');
+  log('Semua file dihapus');
 });
 
 function updateStats() {
@@ -489,10 +446,10 @@ function updateStats() {
 function refreshInspectorAndEditor() {
   const entry = files.find(f => f.id === selectedId);
   if (!entry) {
-    $('#inspectorFileName').textContent = 'Select a file from File Manager';
+    $('#inspectorFileName').textContent = 'Pilih file di File Manager';
     $('#metaBefore').innerHTML = '<p class="text-xs text-slate-400">—</p>';
     $('#metaAfter').innerHTML = '<p class="text-xs text-slate-400">—</p>';
-    $('#editorFileName').textContent = 'Select a file first';
+    $('#editorFileName').textContent = 'Pilih file terlebih dulu';
     $('#editorForm').classList.add('hidden');
     return;
   }
@@ -513,32 +470,30 @@ function refreshInspectorAndEditor() {
   $('#edDateTaken').value = toDatetimeLocal(m.DateTimeOriginal);
 
   let note = '';
-  if (entry.type === 'png') note = 'PNG: full EXIF write not supported. Strip uses canvas re-encode.';
-  if (entry.type === 'mp4' || entry.type === 'mov') note = 'Video: uses FFmpeg stream copy. Only descriptive container tags are edited.';
-  if (entry.type === 'jpeg') note = 'JPEG: full EXIF edit/strip supported. Orientation preserved if setting enabled.';
+  if (entry.type === 'png') note = 'PNG: edit penuh tidak didukung. Hapus metadata memakai re-encode.';
+  if (entry.type === 'mp4' || entry.type === 'mov') note = 'Video: memakai FFmpeg stream copy. Hanya tag deskriptif yang diubah.';
+  if (entry.type === 'jpeg') note = 'JPEG: edit & hapus EXIF didukung penuh.';
   $('#editorNote').textContent = note;
 }
 
-// ---------- Editor actions ----------
 $('#btnApplyEdit')?.addEventListener('click', async () => {
   const entry = files.find(f => f.id === selectedId);
-  if (!entry) return log('No file selected', 'error');
+  if (!entry) return log('Belum ada file dipilih', 'error');
   await processEntry(entry, 'edit', getEditorValues());
 });
 
 $('#btnStripSelected')?.addEventListener('click', async () => {
   const entry = files.find(f => f.id === selectedId);
-  if (!entry) return log('No file selected', 'error');
+  if (!entry) return log('Belum ada file dipilih', 'error');
   await processEntry(entry, 'strip');
 });
 
-// ---------- Batch ----------
 async function runBatch(mode) {
-  if (files.length === 0) return log('No files', 'error');
+  if (files.length === 0) return log('Tidak ada file', 'error');
   const values = getEditorValues();
   const total = files.length;
   let done = 0;
-  $('#batchStatus').textContent = `Processing 0 / ${total}…`;
+  $('#batchStatus').textContent = `Memproses 0 / ${total}…`;
   $('#batchProgress').style.width = '0%';
 
   for (const entry of files) {
@@ -546,37 +501,36 @@ async function runBatch(mode) {
     done++;
     const pct = Math.round((done / total) * 100);
     $('#batchProgress').style.width = pct + '%';
-    $('#batchStatus').textContent = `Processing ${done} / ${total}…`;
+    $('#batchStatus').textContent = `Memproses ${done} / ${total}…`;
   }
-  $('#batchStatus').textContent = `Finished ${done} files`;
-  log(`Batch ${mode} complete (${done} files)`, 'ok');
+  $('#batchStatus').textContent = `Selesai ${done} file`;
+  log(`Batch ${mode} selesai (${done} file)`, 'ok');
 }
 
 $('#btnBatchStrip')?.addEventListener('click', () => runBatch('strip'));
 $('#btnBatchApply')?.addEventListener('click', () => runBatch('edit'));
 
-// ---------- Export ----------
 function updateExportList() {
   const el = $('#exportList');
   if (!el) return;
   const ready = files.filter(f => f.processedBlob);
   if (ready.length === 0) {
-    el.innerHTML = '<p class="text-slate-400 text-xs">No processed files yet</p>';
+    el.innerHTML = '<p class="text-slate-400 text-xs">Belum ada file yang diproses</p>';
     return;
   }
   el.innerHTML = ready.map(f => {
     const url = URL.createObjectURL(f.processedBlob);
     const name = f.file.name.replace(/\.[^.]+$/, '') + '_meta' + f.file.name.slice(f.file.name.lastIndexOf('.'));
-    return `<div class="flex justify-between items-center py-1">
-      <span class="truncate text-xs">${escapeHtml(name)}</span>
-      <a href="${url}" download="${escapeHtml(name)}" class="text-blue-600 text-xs hover:underline">Download</a>
+    return `<div class="flex justify-between items-center py-2 border-b border-slate-50 last:border-0">
+      <span class="truncate text-xs text-slate-700 pr-2">${escapeHtml(name)}</span>
+      <a href="${url}" download="${escapeHtml(name)}" class="text-indigo-600 text-xs font-medium hover:underline shrink-0">Unduh</a>
     </div>`;
   }).join('');
 }
 
 async function downloadZip(onlyProcessed = false) {
   const list = onlyProcessed ? files.filter(f => f.processedBlob) : files;
-  if (list.length === 0) return log('Nothing to download', 'error');
+  if (list.length === 0) return log('Tidak ada yang diunduh', 'error');
 
   const zip = new JSZip();
   for (const f of list) {
@@ -585,7 +539,7 @@ async function downloadZip(onlyProcessed = false) {
     const name = f.file.name.replace(/\.[^.]+$/, '') + suffix + f.file.name.slice(f.file.name.lastIndexOf('.'));
     zip.file(name, blob);
   }
-  log('Building ZIP…');
+  log('Membuat ZIP…');
   const content = await zip.generateAsync({ type: 'blob' }, (meta) => {
     $('#batchProgress').style.width = Math.round(meta.percent) + '%';
   });
@@ -594,12 +548,11 @@ async function downloadZip(onlyProcessed = false) {
   a.href = url;
   a.download = 'metadata-studio-export.zip';
   a.click();
-  log('ZIP download started', 'ok');
+  log('Download ZIP dimulai', 'ok');
 }
 
 $('#btnDownloadAll')?.addEventListener('click', () => downloadZip(false));
 $('#btnDownloadReady')?.addEventListener('click', () => downloadZip(true));
 
-// ---------- Init ----------
-log('Creator Metadata Studio ready. All processing stays in your browser.');
+log('Metadata Studio siap. Semua proses di browser Anda.');
 updateStats();

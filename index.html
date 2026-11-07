@@ -2,221 +2,377 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f172a" />
   <title>Creator Metadata Studio</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:'#eef2ff', 100:'#e0e7ff', 500:'#6366f1', 600:'#4f46e5', 700:'#4338ca', 900:'#312e81' }
+          },
+          boxShadow: {
+            soft: '0 4px 24px -4px rgba(15,23,42,0.08)',
+            glow: '0 0 40px -8px rgba(99,102,241,0.35)'
+          }
+        }
+      }
+    }
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/piexifjs@1.0.6/piexif.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
   <style>
-    :root { --sidebar: 260px; }
+    * { -webkit-tap-highlight-color: transparent; }
     body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-    .sidebar-link.active { background: #eff6ff; color: #1d4ed8; border-right: 3px solid #2563eb; }
-    .file-row:hover { background: #f8fafc; }
-    .file-row.selected { background: #eff6ff; border-left: 3px solid #2563eb; }
-    .meta-table td, .meta-table th { padding: 0.35rem 0.5rem; border-bottom: 1px solid #e5e7eb; font-size: 0.8rem; }
-    .meta-table th { text-align: left; color: #6b7280; width: 40%; }
-    .progress-bar { transition: width 0.25s ease; }
-    .drop-zone.dragover { border-color: #2563eb; background: #eff6ff; }
-    #logPanel { max-height: 180px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 0.75rem; }
+    .sidebar-link.active {
+      background: linear-gradient(135deg, #4f46e5, #6366f1);
+      color: white;
+      box-shadow: 0 4px 14px -3px rgba(79,70,229,0.5);
+    }
+    .file-row.selected { background: #eef2ff; border-left: 3px solid #4f46e5; }
+    .meta-table td, .meta-table th { padding: 0.4rem 0.5rem; border-bottom: 1px solid #f1f5f9; font-size: 0.78rem; }
+    .meta-table th { text-align: left; color: #64748b; width: 42%; font-weight: 500; }
+    .progress-bar { transition: width 0.3s ease; }
+    .drop-zone.dragover { border-color: #6366f1; background: #eef2ff; transform: scale(1.01); }
+    #logPanel { max-height: 140px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: 0.7rem; }
+    /* Mobile drawer */
+    #sidebar {
+      transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
+    }
+    #sidebar.mobile-closed { transform: translateX(-100%); }
+    #overlay { transition: opacity 0.28s ease; }
+    #overlay.hidden-overlay { opacity: 0; pointer-events: none; }
+    @media (min-width: 768px) {
+      #sidebar { transform: none !important; }
+      #overlay { display: none !important; }
+      #btnMenu { display: none !important; }
+    }
+    /* Safe area for notched phones */
+    .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0); }
+    input, button, select { font-size: 16px !important; } /* prevent iOS zoom */
+    @media (min-width: 768px) {
+      input, button, select { font-size: inherit !important; }
+    }
   </style>
 </head>
-<body class="bg-slate-100 text-slate-800 min-h-screen">
+<body class="bg-slate-50 text-slate-800 min-h-screen antialiased">
+
+  <!-- Mobile top bar -->
+  <header class="md:hidden fixed top-0 inset-x-0 z-40 bg-slate-900 text-white px-4 h-14 flex items-center gap-3 shadow-lg">
+    <button id="btnMenu" class="p-2 -ml-1 rounded-lg hover:bg-white/10 active:bg-white/20" aria-label="Menu">
+      <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <div class="flex-1 min-w-0">
+      <div class="font-semibold text-sm truncate">Metadata Studio</div>
+      <div class="text-[10px] text-slate-400 truncate" id="mobileSubtitle">Dashboard</div>
+    </div>
+    <div class="text-[10px] text-emerald-400 font-medium" id="ffmpegStatusMobile">FFmpeg •</div>
+  </header>
+
+  <!-- Overlay (mobile) -->
+  <div id="overlay" class="fixed inset-0 bg-black/50 z-40 md:hidden hidden-overlay"></div>
+
   <div class="flex min-h-screen">
     <!-- Sidebar -->
-    <aside class="w-64 bg-white border-r border-slate-200 flex flex-col fixed h-full z-20">
-      <div class="px-5 py-5 border-b">
-        <h1 class="text-lg font-bold text-slate-900 leading-tight">Creator Metadata Studio</h1>
-        <p class="text-xs text-slate-500 mt-1">Local browser processing</p>
+    <aside id="sidebar" class="w-72 max-w-[85vw] bg-slate-900 text-white flex flex-col fixed h-full z-50 mobile-closed md:translate-x-0 shadow-2xl">
+      <div class="px-5 py-6 border-b border-white/10">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-glow">
+            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+          </div>
+          <div>
+            <h1 class="text-base font-bold leading-tight">Metadata Studio</h1>
+            <p class="text-[11px] text-slate-400">Lokal di browser Anda</p>
+          </div>
+        </div>
       </div>
-      <nav class="flex-1 py-3 text-sm">
-        <a href="#" data-panel="dashboard" class="sidebar-link active flex items-center gap-3 px-5 py-2.5 text-slate-700">Dashboard</a>
-        <a href="#" data-panel="files" class="sidebar-link flex items-center gap-3 px-5 py-2.5 text-slate-700">File Manager</a>
-        <a href="#" data-panel="inspector" class="sidebar-link flex items-center gap-3 px-5 py-2.5 text-slate-700">Metadata Inspector</a>
-        <a href="#" data-panel="editor" class="sidebar-link flex items-center gap-3 px-5 py-2.5 text-slate-700">Metadata Editor</a>
-        <a href="#" data-panel="batch" class="sidebar-link flex items-center gap-3 px-5 py-2.5 text-slate-700">Batch Processing</a>
-        <a href="#" data-panel="export" class="sidebar-link flex items-center gap-3 px-5 py-2.5 text-slate-700">Export Manager</a>
-        <a href="#" data-panel="settings" class="sidebar-link flex items-center gap-3 px-5 py-2.5 text-slate-700">Settings</a>
+
+      <nav class="flex-1 py-4 px-3 space-y-1 text-sm overflow-y-auto">
+        <a href="#" data-panel="dashboard" class="sidebar-link active flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-white/5 transition">
+          <span class="text-lg">📊</span> Dashboard
+        </a>
+        <a href="#" data-panel="files" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-white/5 transition">
+          <span class="text-lg">📁</span> File Manager
+        </a>
+        <a href="#" data-panel="inspector" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-white/5 transition">
+          <span class="text-lg">🔍</span> Inspector
+        </a>
+        <a href="#" data-panel="editor" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-white/5 transition">
+          <span class="text-lg">✏️</span> Editor
+        </a>
+        <a href="#" data-panel="batch" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-white/5 transition">
+          <span class="text-lg">⚡</span> Batch
+        </a>
+        <a href="#" data-panel="export" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-white/5 transition">
+          <span class="text-lg">⬇️</span> Export
+        </a>
+        <a href="#" data-panel="settings" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-300 hover:bg-white/5 transition">
+          <span class="text-lg">⚙️</span> Pengaturan
+        </a>
       </nav>
-      <div class="px-5 py-4 border-t text-xs text-slate-400">
-        <div id="ffmpegStatus">FFmpeg: not loaded</div>
-        <div class="mt-1">v2.0 · Client-side only</div>
+
+      <div class="px-5 py-4 border-t border-white/10 text-xs text-slate-500 safe-bottom">
+        <div id="ffmpegStatus" class="flex items-center gap-2">
+          <span class="w-1.5 h-1.5 rounded-full bg-slate-600" id="ffmpegDot"></span>
+          FFmpeg: belum dimuat
+        </div>
+        <div class="mt-1">v2.1 · 100% lokal</div>
       </div>
     </aside>
 
-    <!-- Main -->
-    <main class="flex-1 ml-64 p-6 max-w-6xl">
-      <!-- DASHBOARD -->
-      <section id="panel-dashboard" class="panel">
-        <h2 class="text-xl font-semibold mb-4">Dashboard</h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div class="bg-white rounded-xl p-4 shadow-sm border">
-            <div class="text-2xl font-bold" id="statTotal">0</div>
-            <div class="text-xs text-slate-500">Total files</div>
-          </div>
-          <div class="bg-white rounded-xl p-4 shadow-sm border">
-            <div class="text-2xl font-bold text-blue-600" id="statImages">0</div>
-            <div class="text-xs text-slate-500">Images</div>
-          </div>
-          <div class="bg-white rounded-xl p-4 shadow-sm border">
-            <div class="text-2xl font-bold text-purple-600" id="statVideos">0</div>
-            <div class="text-xs text-slate-500">Videos</div>
-          </div>
-          <div class="bg-white rounded-xl p-4 shadow-sm border">
-            <div class="text-2xl font-bold text-green-600" id="statReady">0</div>
-            <div class="text-xs text-slate-500">Ready to export</div>
-          </div>
-        </div>
+    <!-- Main content -->
+    <main class="flex-1 md:ml-72 pt-14 md:pt-0 min-h-screen">
+      <div class="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
 
-        <div id="dropZone" class="drop-zone border-2 border-dashed border-slate-300 rounded-xl p-10 text-center bg-white cursor-pointer transition">
-          <p class="text-slate-600 font-medium">Drop files here or click to select</p>
-          <p class="text-xs text-slate-400 mt-2">JPEG · PNG · MP4 · MOV — multiple files supported</p>
-          <input type="file" id="fileInput" multiple accept="image/jpeg,image/jpg,image/png,video/mp4,video/quicktime,.jpg,.jpeg,.png,.mp4,.mov" class="hidden" />
-        </div>
-
-        <div class="mt-6 bg-white rounded-xl border p-4">
-          <h3 class="text-sm font-semibold mb-2">Capability Matrix</h3>
-          <div class="overflow-x-auto">
-            <table class="w-full text-xs">
-              <thead><tr class="text-left text-slate-500"><th class="py-1">Format</th><th>Read</th><th>Edit descriptive</th><th>Strip / Privacy</th><th>Stream copy</th></tr></thead>
-              <tbody class="text-slate-700">
-                <tr><td class="py-1 font-medium">JPEG</td><td>Full EXIF</td><td>Yes</td><td>Yes</td><td>—</td></tr>
-                <tr><td class="py-1 font-medium">PNG</td><td>XMP / limited</td><td>Partial</td><td>Yes (re-encode)</td><td>—</td></tr>
-                <tr><td class="py-1 font-medium">MP4 / MOV</td><td>Container tags</td><td>Yes (title, artist…)</td><td>Yes</td><td>Preferred</td></tr>
-              </tbody>
-            </table>
+        <!-- DASHBOARD -->
+        <section id="panel-dashboard" class="panel">
+          <div class="mb-6">
+            <h2 class="text-2xl font-bold text-slate-900 tracking-tight">Dashboard</h2>
+            <p class="text-sm text-slate-500 mt-1">Kelola metadata foto & video secara privat</p>
           </div>
-        </div>
-      </section>
 
-      <!-- FILE MANAGER -->
-      <section id="panel-files" class="panel hidden">
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-xl font-semibold">File Manager</h2>
-          <button id="btnClearAll" class="text-sm text-red-600 hover:underline">Clear all</button>
-        </div>
-        <div id="fileList" class="bg-white rounded-xl border divide-y max-h-[70vh] overflow-y-auto">
-          <div class="p-8 text-center text-slate-400 text-sm" id="fileListEmpty">No files yet. Use Dashboard to add files.</div>
-        </div>
-      </section>
-
-      <!-- INSPECTOR -->
-      <section id="panel-inspector" class="panel hidden">
-        <h2 class="text-xl font-semibold mb-4">Metadata Inspector</h2>
-        <p class="text-sm text-slate-500 mb-3" id="inspectorFileName">Select a file from File Manager</p>
-        <div class="grid md:grid-cols-2 gap-4">
-          <div class="bg-white rounded-xl border p-4">
-            <h3 class="text-sm font-semibold mb-2 text-slate-600">Before (original)</h3>
-            <div id="metaBefore" class="overflow-auto max-h-96"><p class="text-xs text-slate-400">—</p></div>
-          </div>
-          <div class="bg-white rounded-xl border p-4">
-            <h3 class="text-sm font-semibold mb-2 text-slate-600">After (processed)</h3>
-            <div id="metaAfter" class="overflow-auto max-h-96"><p class="text-xs text-slate-400">—</p></div>
-          </div>
-        </div>
-      </section>
-
-      <!-- EDITOR -->
-      <section id="panel-editor" class="panel hidden">
-        <h2 class="text-xl font-semibold mb-4">Metadata Editor</h2>
-        <p class="text-sm text-slate-500 mb-4" id="editorFileName">Select a file first</p>
-
-        <div id="editorForm" class="bg-white rounded-xl border p-5 space-y-4 hidden">
-          <div class="grid sm:grid-cols-2 gap-4">
-            <div>
-              <label class="block text-xs text-slate-500 mb-1">Title / Description</label>
-              <input type="text" id="edTitle" class="w-full border rounded-lg px-3 py-2 text-sm" />
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+            <div class="bg-white rounded-2xl p-4 shadow-soft border border-slate-100">
+              <div class="text-2xl sm:text-3xl font-bold text-slate-900" id="statTotal">0</div>
+              <div class="text-xs text-slate-500 mt-0.5">Total file</div>
             </div>
-            <div>
-              <label class="block text-xs text-slate-500 mb-1">Artist / Author</label>
-              <input type="text" id="edArtist" class="w-full border rounded-lg px-3 py-2 text-sm" />
+            <div class="bg-white rounded-2xl p-4 shadow-soft border border-slate-100">
+              <div class="text-2xl sm:text-3xl font-bold text-indigo-600" id="statImages">0</div>
+              <div class="text-xs text-slate-500 mt-0.5">Gambar</div>
             </div>
-            <div>
-              <label class="block text-xs text-slate-500 mb-1">Copyright</label>
-              <input type="text" id="edCopyright" class="w-full border rounded-lg px-3 py-2 text-sm" />
+            <div class="bg-white rounded-2xl p-4 shadow-soft border border-slate-100">
+              <div class="text-2xl sm:text-3xl font-bold text-purple-600" id="statVideos">0</div>
+              <div class="text-xs text-slate-500 mt-0.5">Video</div>
             </div>
-            <div>
-              <label class="block text-xs text-slate-500 mb-1">Make / Camera</label>
-              <input type="text" id="edMake" class="w-full border rounded-lg px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label class="block text-xs text-slate-500 mb-1">Model</label>
-              <input type="text" id="edModel" class="w-full border rounded-lg px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label class="block text-xs text-slate-500 mb-1">Date Taken</label>
-              <input type="datetime-local" id="edDateTaken" class="w-full border rounded-lg px-3 py-2 text-sm" />
+            <div class="bg-white rounded-2xl p-4 shadow-soft border border-slate-100">
+              <div class="text-2xl sm:text-3xl font-bold text-emerald-600" id="statReady">0</div>
+              <div class="text-xs text-slate-500 mt-0.5">Siap unduh</div>
             </div>
           </div>
 
-          <div class="flex flex-wrap gap-2 pt-2">
-            <button id="btnApplyEdit" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg">Apply to selected</button>
-            <button id="btnStripSelected" class="bg-red-600 hover:bg-red-700 text-white text-sm px-4 py-2 rounded-lg">Strip all metadata</button>
+          <div id="dropZone" class="drop-zone relative border-2 border-dashed border-slate-200 rounded-2xl p-8 sm:p-12 text-center bg-white cursor-pointer transition-all duration-200 hover:border-indigo-300 hover:bg-indigo-50/30 shadow-soft">
+            <div class="w-14 h-14 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-glow">
+              <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+            </div>
+            <p class="text-slate-700 font-semibold text-base">Ketuk atau jatuhkan file di sini</p>
+            <p class="text-xs text-slate-400 mt-2">JPEG · PNG · MP4 · MOV — bisa banyak file</p>
+            <input type="file" id="fileInput" multiple accept="image/jpeg,image/jpg,image/png,video/mp4,video/quicktime,.jpg,.jpeg,.png,.mp4,.mov" class="hidden" />
           </div>
-          <p class="text-xs text-slate-400" id="editorNote"></p>
-        </div>
-      </section>
 
-      <!-- BATCH -->
-      <section id="panel-batch" class="panel hidden">
-        <h2 class="text-xl font-semibold mb-4">Batch Processing</h2>
-        <div class="bg-white rounded-xl border p-5 space-y-4">
-          <p class="text-sm text-slate-600">Apply the same operation to all loaded files.</p>
-          <div class="flex flex-wrap gap-3">
-            <button id="btnBatchStrip" class="bg-red-600 hover:bg-red-700 text-white text-sm px-4 py-2 rounded-lg">Strip metadata (all)</button>
-            <button id="btnBatchApply" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg">Apply current editor values (all)</button>
+          <div class="mt-6 bg-white rounded-2xl border border-slate-100 shadow-soft p-4 sm:p-5">
+            <h3 class="text-sm font-semibold text-slate-700 mb-3">Dukungan format</h3>
+            <div class="overflow-x-auto -mx-1">
+              <table class="w-full text-xs min-w-[320px]">
+                <thead>
+                  <tr class="text-left text-slate-400 border-b border-slate-100">
+                    <th class="py-2 pr-3 font-medium">Format</th>
+                    <th class="py-2 pr-3 font-medium">Baca</th>
+                    <th class="py-2 pr-3 font-medium">Edit</th>
+                    <th class="py-2 font-medium">Hapus</th>
+                  </tr>
+                </thead>
+                <tbody class="text-slate-600">
+                  <tr class="border-b border-slate-50"><td class="py-2.5 font-semibold text-slate-800">JPEG</td><td>Lengkap</td><td>Ya</td><td>Ya</td></tr>
+                  <tr class="border-b border-slate-50"><td class="py-2.5 font-semibold text-slate-800">PNG</td><td>Terbatas</td><td>Sebagian</td><td>Ya</td></tr>
+                  <tr><td class="py-2.5 font-semibold text-slate-800">MP4 / MOV</td><td>Ya</td><td>Ya</td><td>Ya</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-            <div id="batchProgress" class="progress-bar bg-blue-600 h-2.5 rounded-full" style="width:0%"></div>
+        </section>
+
+        <!-- FILE MANAGER -->
+        <section id="panel-files" class="panel hidden">
+          <div class="flex items-center justify-between mb-5 gap-3">
+            <div>
+              <h2 class="text-2xl font-bold text-slate-900">File Manager</h2>
+              <p class="text-sm text-slate-500 mt-0.5">Pilih file untuk diedit</p>
+            </div>
+            <button id="btnClearAll" class="text-xs sm:text-sm text-red-500 hover:text-red-600 font-medium px-3 py-1.5 rounded-lg hover:bg-red-50 transition">Hapus semua</button>
           </div>
-          <p id="batchStatus" class="text-xs text-slate-500">Idle</p>
-        </div>
-      </section>
-
-      <!-- EXPORT -->
-      <section id="panel-export" class="panel hidden">
-        <h2 class="text-xl font-semibold mb-4">Export Manager</h2>
-        <div class="bg-white rounded-xl border p-5 space-y-4">
-          <p class="text-sm text-slate-600">Download processed files individually or as a ZIP.</p>
-          <div class="flex flex-wrap gap-3">
-            <button id="btnDownloadAll" class="bg-green-600 hover:bg-green-700 text-white text-sm px-4 py-2 rounded-lg">Download all (ZIP)</button>
-            <button id="btnDownloadReady" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-2 rounded-lg">Download only processed (ZIP)</button>
+          <div id="fileList" class="bg-white rounded-2xl border border-slate-100 shadow-soft divide-y divide-slate-50 max-h-[65vh] overflow-y-auto">
+            <div class="p-10 text-center text-slate-400 text-sm" id="fileListEmpty">Belum ada file. Tambah dari Dashboard.</div>
           </div>
-          <div id="exportList" class="text-sm space-y-1 max-h-60 overflow-y-auto"></div>
-        </div>
-      </section>
+        </section>
 
-      <!-- SETTINGS -->
-      <section id="panel-settings" class="panel hidden">
-        <h2 class="text-xl font-semibold mb-4">Settings</h2>
-        <div class="bg-white rounded-xl border p-5 space-y-4 text-sm">
-          <label class="flex items-center gap-2">
-            <input type="checkbox" id="optPreserveOrientation" checked />
-            Preserve JPEG Orientation tag when editing
-          </label>
-          <label class="flex items-center gap-2">
-            <input type="checkbox" id="optWarnPng" checked />
-            Warn when PNG processing requires re-encode
-          </label>
-          <label class="flex items-center gap-2">
-            <input type="checkbox" id="optAutoLoadFFmpeg" />
-            Auto-load FFmpeg.wasm when first video is added
-          </label>
-          <button id="btnLoadFFmpeg" class="bg-slate-800 hover:bg-slate-900 text-white text-sm px-4 py-2 rounded-lg">Load FFmpeg.wasm now</button>
-          <p class="text-xs text-slate-400">FFmpeg.wasm is ~25–30 MB. Load only when you need video processing.</p>
-        </div>
-      </section>
+        <!-- INSPECTOR -->
+        <section id="panel-inspector" class="panel hidden">
+          <h2 class="text-2xl font-bold text-slate-900 mb-1">Inspector</h2>
+          <p class="text-sm text-slate-500 mb-5" id="inspectorFileName">Pilih file di File Manager</p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="bg-white rounded-2xl border border-slate-100 shadow-soft p-4">
+              <div class="flex items-center gap-2 mb-3">
+                <span class="w-2 h-2 rounded-full bg-slate-400"></span>
+                <h3 class="text-sm font-semibold text-slate-600">Sebelum</h3>
+              </div>
+              <div id="metaBefore" class="overflow-auto max-h-80"><p class="text-xs text-slate-400">—</p></div>
+            </div>
+            <div class="bg-white rounded-2xl border border-slate-100 shadow-soft p-4">
+              <div class="flex items-center gap-2 mb-3">
+                <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <h3 class="text-sm font-semibold text-slate-600">Sesudah</h3>
+              </div>
+              <div id="metaAfter" class="overflow-auto max-h-80"><p class="text-xs text-slate-400">—</p></div>
+            </div>
+          </div>
+        </section>
 
-      <!-- Log -->
-      <div class="mt-6 bg-slate-900 text-slate-200 rounded-xl p-3">
-        <div class="text-xs text-slate-400 mb-1">Activity log</div>
-        <div id="logPanel"></div>
+        <!-- EDITOR -->
+        <section id="panel-editor" class="panel hidden">
+          <h2 class="text-2xl font-bold text-slate-900 mb-1">Editor Metadata</h2>
+          <p class="text-sm text-slate-500 mb-5" id="editorFileName">Pilih file terlebih dulu</p>
+
+          <div id="editorForm" class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 space-y-4 hidden">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1.5">Judul / Deskripsi</label>
+                <input type="text" id="edTitle" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1.5">Artist / Author</label>
+                <input type="text" id="edArtist" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1.5">Copyright</label>
+                <input type="text" id="edCopyright" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1.5">Kamera (Make)</label>
+                <input type="text" id="edMake" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1.5">Model</label>
+                <input type="text" id="edModel" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-500 mb-1.5">Tanggal diambil</label>
+                <input type="datetime-local" id="edDateTaken" class="w-full border border-slate-200 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
+              </div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-2.5 pt-2">
+              <button id="btnApplyEdit" class="flex-1 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-semibold px-5 py-3 rounded-xl shadow-lg shadow-indigo-500/25 transition">
+                Simpan Metadata
+              </button>
+              <button id="btnStripSelected" class="flex-1 bg-red-500 hover:bg-red-600 active:bg-red-700 text-white text-sm font-semibold px-5 py-3 rounded-xl shadow-lg shadow-red-500/20 transition">
+                Hapus Semua Metadata
+              </button>
+            </div>
+            <p class="text-xs text-slate-400 leading-relaxed" id="editorNote"></p>
+          </div>
+        </section>
+
+        <!-- BATCH -->
+        <section id="panel-batch" class="panel hidden">
+          <h2 class="text-2xl font-bold text-slate-900 mb-1">Batch Processing</h2>
+          <p class="text-sm text-slate-500 mb-5">Terapkan ke semua file sekaligus</p>
+          <div class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 space-y-5">
+            <div class="flex flex-col sm:flex-row gap-2.5">
+              <button id="btnBatchStrip" class="flex-1 bg-red-500 hover:bg-red-600 text-white text-sm font-semibold px-5 py-3 rounded-xl transition">Hapus metadata (semua)</button>
+              <button id="btnBatchApply" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-5 py-3 rounded-xl transition">Terapkan nilai editor (semua)</button>
+            </div>
+            <div>
+              <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                <div id="batchProgress" class="progress-bar bg-gradient-to-r from-indigo-500 to-purple-500 h-2.5 rounded-full" style="width:0%"></div>
+              </div>
+              <p id="batchStatus" class="text-xs text-slate-500 mt-2">Siap</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- EXPORT -->
+        <section id="panel-export" class="panel hidden">
+          <h2 class="text-2xl font-bold text-slate-900 mb-1">Export</h2>
+          <p class="text-sm text-slate-500 mb-5">Unduh hasil olahan</p>
+          <div class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 space-y-4">
+            <div class="flex flex-col sm:flex-row gap-2.5">
+              <button id="btnDownloadAll" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-5 py-3 rounded-xl transition">Download semua (ZIP)</button>
+              <button id="btnDownloadReady" class="flex-1 bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold px-5 py-3 rounded-xl transition">Hanya yang diproses (ZIP)</button>
+            </div>
+            <div id="exportList" class="text-sm space-y-1 max-h-56 overflow-y-auto"></div>
+          </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section id="panel-settings" class="panel hidden">
+          <h2 class="text-2xl font-bold text-slate-900 mb-1">Pengaturan</h2>
+          <p class="text-sm text-slate-500 mb-5">Opsi aplikasi</p>
+          <div class="bg-white rounded-2xl border border-slate-100 shadow-soft p-5 space-y-4 text-sm">
+            <label class="flex items-start gap-3 p-3 rounded-xl hover:bg-slate-50 cursor-pointer transition">
+              <input type="checkbox" id="optPreserveOrientation" checked class="mt-1 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+              <div>
+                <div class="font-medium text-slate-800">Pertahankan Orientation JPEG</div>
+                <div class="text-xs text-slate-400">Jaga orientasi foto saat mengedit</div>
+              </div>
+            </label>
+            <label class="flex items-start gap-3 p-3 rounded-xl hover:bg-slate-50 cursor-pointer transition">
+              <input type="checkbox" id="optWarnPng" checked class="mt-1 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+              <div>
+                <div class="font-medium text-slate-800">Peringatan PNG re-encode</div>
+                <div class="text-xs text-slate-400">Tampilkan catatan saat memproses PNG</div>
+              </div>
+            </label>
+            <label class="flex items-start gap-3 p-3 rounded-xl hover:bg-slate-50 cursor-pointer transition">
+              <input type="checkbox" id="optAutoLoadFFmpeg" class="mt-1 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+              <div>
+                <div class="font-medium text-slate-800">Auto-load FFmpeg untuk video</div>
+                <div class="text-xs text-slate-400">Muat otomatis saat ada file video</div>
+              </div>
+            </label>
+            <button id="btnLoadFFmpeg" class="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold px-5 py-3 rounded-xl transition">
+              Muat FFmpeg.wasm sekarang
+            </button>
+            <p class="text-xs text-slate-400">FFmpeg.wasm berukuran ±25–30 MB. Hanya perlu dimuat jika Anda mengolah video.</p>
+          </div>
+        </section>
+
+        <!-- Log -->
+        <div class="mt-6 bg-slate-900 text-slate-300 rounded-2xl p-4 shadow-soft">
+          <div class="text-[10px] uppercase tracking-wider text-slate-500 mb-2 font-semibold">Log aktivitas</div>
+          <div id="logPanel"></div>
+        </div>
+
+        <p class="text-center text-[11px] text-slate-400 mt-6 pb-6">Semua proses berjalan di perangkat Anda · Tidak ada file yang dikirim ke server</p>
       </div>
     </main>
   </div>
 
   <script src="app.js"></script>
+  <script>
+    // Mobile menu
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('overlay');
+    const btnMenu = document.getElementById('btnMenu');
+    const mobileSubtitle = document.getElementById('mobileSubtitle');
+
+    function openMenu() {
+      sidebar.classList.remove('mobile-closed');
+      overlay.classList.remove('hidden-overlay');
+    }
+    function closeMenu() {
+      sidebar.classList.add('mobile-closed');
+      overlay.classList.add('hidden-overlay');
+    }
+
+    btnMenu?.addEventListener('click', openMenu);
+    overlay?.addEventListener('click', closeMenu);
+
+    // Close menu when navigating on mobile
+    document.querySelectorAll('.sidebar-link').forEach(link => {
+      link.addEventListener('click', () => {
+        if (window.innerWidth < 768) closeMenu();
+        const labels = {
+          dashboard: 'Dashboard', files: 'File Manager', inspector: 'Inspector',
+          editor: 'Editor', batch: 'Batch', export: 'Export', settings: 'Pengaturan'
+        };
+        if (mobileSubtitle) mobileSubtitle.textContent = labels[link.dataset.panel] || '';
+      });
+    });
+  </script>
 </body>
 </html>
